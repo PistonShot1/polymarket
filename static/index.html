@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Polymarket — Market Order</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --fg:#e6e9ef; --mut:#8b93a3; --acc:#4f8cff; --buy:#1f9d55; --warn:#d9822b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; margin:0; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
+  .pill.on { color:#fff; background:var(--buy); border-color:var(--buy); }
+  .pill.off { color:#fff; background:var(--warn); border-color:var(--warn); }
+  main { max-width:840px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; }
+  input, select, button { font:inherit; color:var(--fg); background:#11141a; border:1px solid var(--line); border-radius:8px; padding:9px 11px; width:100%; }
+  button { cursor:pointer; background:var(--acc); border-color:var(--acc); color:#fff; font-weight:600; width:auto; }
+  button.buy { background:var(--buy); border-color:var(--buy); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:10px; }
+  .row > * { flex:1; }
+  .mkt { padding:10px 12px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; cursor:pointer; }
+  .mkt:hover { border-color:var(--acc); }
+  .mkt.sel { border-color:var(--acc); background:#172033; }
+  .mkt .q { font-weight:600; }
+  .mkt .o { font-size:12px; color:var(--mut); margin-top:2px; }
+  .out { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .out button { flex:0 0 auto; background:#11141a; border-color:var(--line); color:var(--fg); font-weight:500; }
+  .out button.sel { background:var(--acc); border-color:var(--acc); color:#fff; }
+  pre { background:#0b0d11; border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+  .mut { color:var(--mut); }
+  .err { color:#ff6b6b; }
+  .ok { color:#5fd38a; }
+  .list { max-height:340px; overflow:auto; }
+  nav.tabs { display:flex; gap:6px; padding:0 20px; border-bottom:1px solid var(--line); }
+  nav.tabs button { width:auto; background:none; border:none; border-bottom:2px solid transparent; border-radius:0; color:var(--mut); padding:12px 14px; font-weight:600; }
+  nav.tabs button.sel { color:var(--fg); border-bottom-color:var(--acc); }
+  .panel { display:none; }
+  .panel.sel { display:block; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pos { color:#5fd38a; } .neg { color:#ff6b6b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Polymarket · Market Order</h1>
+  <span id="tradePill" class="pill">checking…</span>
+  <span style="flex:1"></span>
+  <span id="bal" class="pill">balance: —</span>
+</header>
+<nav class="tabs">
+  <button class="sel" data-tab="trade" onclick="tab('trade')">Trade</button>
+  <button data-tab="positions" onclick="tab('positions')">Positions</button>
+  <button data-tab="orders" onclick="tab('orders')">Open Orders</button>
+  <button data-tab="copy" onclick="tab('copy')">Copy Trading</button>
+</nav>
+<main>
+ <div id="panel-trade" class="panel sel">
+  <div class="card">
+    <div class="row">
+      <input id="search" placeholder="Search markets (e.g. election, bitcoin)…" />
+      <button onclick="loadMarkets()" style="flex:0 0 auto">Refresh</button>
+    </div>
+    <div id="markets" class="list" style="margin-top:12px"><span class="mut">Loading…</span></div>
+    <button id="moreBtn" onclick="loadMore()" style="margin-top:10px;display:none">Load more</button>
+  </div>
+
+  <div class="card" id="orderCard" style="display:none">
+    <div id="selInfo"></div>
+    <label>Outcome (token)</label>
+    <div id="outcomes" class="out"></div>
+
+    <div class="row">
+      <div>
+        <label>Side</label>
+        <select id="side"><option>BUY</option><option>SELL</option></select>
+      </div>
+      <div>
+        <label>Type</label>
+        <select id="type"><option>FOK</option><option>FAK</option></select>
+      </div>
+      <div>
+        <label id="amtLabel">Amount (USDC)</label>
+        <input id="amount" type="number" min="0" step="0.01" value="5" />
+      </div>
+    </div>
+
+    <div style="margin-top:14px" class="row">
+      <button onclick="preview()" style="flex:0 0 auto">Preview</button>
+      <button class="buy" id="placeBtn" onclick="place()" disabled style="flex:0 0 auto">Place order</button>
+    </div>
+    <div id="result" style="margin-top:14px"></div>
+  </div>
+ </div>
+
+ <div id="panel-positions" class="panel">
+  <div class="card">
+    <div class="row"><b style="flex:1">Active positions</b><button onclick="loadPositions()" style="flex:0 0 auto">Refresh</button></div>
+    <div id="positions" style="margin-top:12px"><span class="mut">Open this tab to load.</span></div>
+  </div>
+ </div>
+
+ <div id="panel-orders" class="panel">
+  <div class="card">
+    <div class="row"><b style="flex:1">Open orders</b><button onclick="loadOrders()" style="flex:0 0 auto">Refresh</button></div>
+    <div id="orders" style="margin-top:12px"><span class="mut">Open this tab to load.</span></div>
+  </div>
+ </div>
+
+ <div id="panel-copy" class="panel">
+  <div class="card">
+    <b>Track a profile</b>
+    <div class="mut" style="font-size:12px;margin:4px 0 8px">Add wallet addresses to watch. Open their active positions, pick a market, then enter the USDC amount when you buy.</div>
+    <div class="row">
+      <input id="pfAddr" placeholder="0x… wallet address" style="flex:3" />
+      <input id="pfLabel" placeholder="label (optional)" style="flex:2" />
+      <button onclick="addProfile()" style="flex:0 0 auto">Track</button>
+    </div>
+    <div id="pfMsg" style="margin-top:8px"></div>
+  </div>
+  <div class="card">
+    <b>Filter positions</b>
+    <div class="mut" style="font-size:12px;margin:4px 0 8px">Prices in cents (¢). e.g. bought ≥ 70 and now ≤ 80. Blank = no bound.</div>
+    <div class="row">
+      <div><label>Bought at (avg) ≥ ¢</label><input id="fAvgMin" type="number" step="0.1" placeholder="min" /></div>
+      <div><label>Bought at (avg) ≤ ¢</label><input id="fAvgMax" type="number" step="0.1" placeholder="max" /></div>
+      <div><label>Now (cur) ≥ ¢</label><input id="fCurMin" type="number" step="0.1" placeholder="min" /></div>
+      <div><label>Now (cur) ≤ ¢</label><input id="fCurMax" type="number" step="0.1" placeholder="max" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button onclick="renderCopy()" style="flex:0 0 auto">Apply filter</button>
+      <button onclick="clearCopyFilter()" style="flex:0 0 auto;background:#11141a;border-color:var(--line);color:var(--fg)">Clear</button>
+      <span style="flex:1"></span>
+      <span id="copyCount" class="mut" style="align-self:center"></span>
+    </div>
+  </div>
+  <div class="row" style="margin-bottom:8px"><b style="flex:1">Tracked profiles · active positions</b><button onclick="loadCopy()" style="flex:0 0 auto">Refresh</button></div>
+  <div id="copy"><span class="mut">Open this tab to load.</span></div>
+ </div>
+</main>
+
+<script>
+let MARKETS = [], SELM = null, SELT = null, TRADING = false, LASTPREV = null;
+let OFFSET = 0; const PAGE = 60;
+
+async function j(url, opts){ const r = await fetch(url, opts); const d = await r.json(); if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }
+
+function tab(name){
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('sel', b.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('sel', p.id==='panel-'+name));
+  if(name==='positions') loadPositions();
+  if(name==='orders') loadOrders();
+  if(name==='copy') loadCopy();
+}
+
+async function init(){
+  try { const c = await j('/api/config'); TRADING = c.tradingEnabled;
+    const p = document.getElementById('tradePill');
+    p.textContent = TRADING ? 'TRADING ON' : 'preview-only';
+    p.className = 'pill ' + (TRADING ? 'on' : 'off');
+  } catch(e){}
+  loadBalance(); loadMarkets();
+}
+
+async function loadBalance(){
+  try { const d = await j('/api/balance'); document.getElementById('bal').textContent = 'collateral: ' + JSON.stringify(d.collateral); }
+  catch(e){ document.getElementById('bal').textContent = 'balance: n/a'; }
+}
+
+async function loadMarkets(append){
+  const box = document.getElementById('markets'), more = document.getElementById('moreBtn');
+  if(!append){ OFFSET = 0; MARKETS = []; box.innerHTML = '<span class="mut">Loading…</span>'; more.style.display='none'; }
+  try {
+    const page = await j('/api/markets?limit='+PAGE+'&offset='+OFFSET+'&search=' + encodeURIComponent(document.getElementById('search').value));
+    if(!append) box.innerHTML = '';
+    if(!append && !page.length){ box.innerHTML = '<span class="mut">No tradable markets found.</span>'; return; }
+    const base = MARKETS.length;
+    MARKETS = MARKETS.concat(page);
+    page.forEach((m,k) => {
+      const i = base + k;
+      const el = document.createElement('div'); el.className='mkt'; el.onclick=()=>selectMarket(i,el);
+      el.innerHTML = '<div class="q">'+esc(m.question)+'</div><div class="o">'+
+        m.outcomes.map(o=>esc(o.name)+' '+(o.price!=null?('· '+o.price):'')).join('  |  ')+
+        '  · tick '+m.tickSize+(m.negRisk?' · negRisk':'')+'</div>';
+      box.appendChild(el);
+    });
+    OFFSET += PAGE;
+    // Gamma filters server-side; a short page means we've likely reached the end.
+    more.style.display = page.length >= PAGE ? 'inline-block' : 'none';
+  } catch(e){ if(!append) box.innerHTML = '<span class="err">'+esc(e.message)+'</span>'; }
+}
+function loadMore(){ loadMarkets(true); }
+
+async function loadPositions(){
+  const box = document.getElementById('positions'); box.innerHTML = '<span class="mut">Loading…</span>';
+  try {
+    const d = await j('/api/positions');
+    if(!d.length){ box.innerHTML = '<span class="mut">No active positions.</span>'; return; }
+    let h = '<table><tr><th>Market</th><th>Outcome</th><th class="num">Size</th><th class="num">Avg</th><th class="num">Cur</th><th class="num">Value</th><th class="num">PnL</th></tr>';
+    d.forEach(p=>{
+      const pnl = Number(p.cashPnl||0), cls = pnl>=0?'pos':'neg';
+      h += '<tr><td>'+esc(p.title||'?')+'</td><td>'+esc(p.outcome||'?')+'</td>'+
+        '<td class="num">'+fmt(p.size)+'</td><td class="num">'+fmt(p.avgPrice)+'</td><td class="num">'+fmt(p.curPrice)+'</td>'+
+        '<td class="num">'+fmt(p.currentValue)+'</td><td class="num '+cls+'">'+fmt(p.cashPnl)+' ('+fmt(p.percentPnl)+'%)</td></tr>';
+    });
+    box.innerHTML = h+'</table>';
+  } catch(e){ box.innerHTML = '<span class="err">'+esc(e.message)+'</span>'; }
+}
+
+async function loadOrders(){
+  const box = document.getElementById('orders'); box.innerHTML = '<span class="mut">Loading…</span>';
+  try {
+    const d = await j('/api/orders');
+    if(!d.length){ box.innerHTML = '<span class="mut">No open orders.</span>'; return; }
+    let h = '<table><tr><th>Outcome</th><th>Side</th><th class="num">Price</th><th class="num">Size</th><th class="num">Filled</th><th>Type</th><th>Status</th></tr>';
+    d.forEach(o=>{
+      h += '<tr><td>'+esc(o.outcome||o.asset_id||'?')+'</td><td>'+esc(o.side||'')+'</td>'+
+        '<td class="num">'+fmt(o.price)+'</td><td class="num">'+fmt(o.original_size)+'</td>'+
+        '<td class="num">'+fmt(o.size_matched)+'</td><td>'+esc(o.order_type||'')+'</td><td>'+esc(o.status||'')+'</td></tr>';
+    });
+    box.innerHTML = h+'</table>';
+  } catch(e){ box.innerHTML = '<span class="err">'+esc(e.message)+'</span>'; }
+}
+function fmt(v){ if(v==null||v==='') return '—'; const n=Number(v); return isNaN(n)?esc(v):(Math.round(n*10000)/10000); }
+
+async function addProfile(){
+  const address=document.getElementById('pfAddr').value.trim();
+  const label=document.getElementById('pfLabel').value.trim();
+  if(!address) return pfmsg('Enter an address.','err');
+  try {
+    await j('/api/profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address,label})});
+    document.getElementById('pfAddr').value=''; document.getElementById('pfLabel').value='';
+    pfmsg('Tracked.','ok'); loadCopy();
+  } catch(e){ pfmsg(e.message,'err'); }
+}
+async function removeProfile(addr){
+  if(!confirm('Stop tracking '+addr+'?')) return;
+  try { await j('/api/profiles?address='+encodeURIComponent(addr),{method:'DELETE'}); loadCopy(); } catch(e){ pfmsg(e.message,'err'); }
+}
+
+let COPYDATA = {}, COPYRAW = [];
+async function loadCopy(){
+  const box=document.getElementById('copy'); box.innerHTML='<span class="mut">Loading…</span>';
+  try {
+    COPYRAW = await j('/api/copy/positions');
+    COPYDATA = {}; COPYRAW.forEach(p=>{ COPYDATA[p.address]=p.positions||[]; });
+    renderCopy();
+  } catch(e){ box.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
+
+function cents(v){ return v==null||v===''?null:Number(v)*100; }       // 0-1 price -> cents
+function centStr(v){ const c=cents(v); return c==null?'—':(Math.round(c*10)/10)+'¢'; }
+function numOrNull(id){ const v=document.getElementById(id).value; return v===''?null:Number(v); }
+function passFilter(pos){
+  const aMin=numOrNull('fAvgMin'), aMax=numOrNull('fAvgMax'), cMin=numOrNull('fCurMin'), cMax=numOrNull('fCurMax');
+  const a=cents(pos.avgPrice), c=cents(pos.curPrice);
+  if(aMin!=null && (a==null||a<aMin)) return false;
+  if(aMax!=null && (a==null||a>aMax)) return false;
+  if(cMin!=null && (c==null||c<cMin)) return false;
+  if(cMax!=null && (c==null||c>cMax)) return false;
+  return true;
+}
+function clearCopyFilter(){ ['fAvgMin','fAvgMax','fCurMin','fCurMax'].forEach(id=>document.getElementById(id).value=''); renderCopy(); }
+
+function renderCopy(){
+  const box=document.getElementById('copy');
+  if(!COPYRAW.length){ box.innerHTML='<span class="mut">No profiles tracked yet. Add one above.</span>'; document.getElementById('copyCount').textContent=''; return; }
+  box.innerHTML=''; let shown=0, total=0;
+  COPYRAW.forEach(p=>{
+    const card=document.createElement('div'); card.className='card';
+    const head='<div class="row" style="align-items:center"><div style="flex:1">'+
+      '<b>'+esc(p.label||'(no label)')+'</b> <span class="mut" style="font-size:12px">'+esc(p.address)+'</span></div>'+
+      '<button style="flex:0 0 auto;background:#5a2230;border-color:#5a2230" onclick="removeProfile(\''+esc(p.address)+'\')">Remove</button></div>';
+    let body;
+    if(p.error){ body='<div class="err" style="margin-top:8px">'+esc(p.error)+'</div>'; }
+    else {
+      const all=p.positions||[]; total+=all.length;
+      const rows=all.filter(passFilter); shown+=rows.length;
+      if(!all.length){ body='<div class="mut" style="margin-top:8px">No active positions.</div>'; }
+      else if(!rows.length){ body='<div class="mut" style="margin-top:8px">No positions match filter ('+all.length+' hidden).</div>'; }
+      else {
+        body='<table style="margin-top:8px"><tr><th>Market</th><th>Outcome</th><th class="num">Size</th><th class="num">Avg → Now</th><th class="num">Value</th><th class="num">PnL%</th><th></th></tr>';
+        rows.forEach(pos=>{
+          const cls=Number(pos.percentPnl||0)>=0?'pos':'neg';
+          body+='<tr><td>'+esc(pos.title||'?')+'</td><td>'+esc(pos.outcome||'?')+'</td>'+
+            '<td class="num">'+fmt(pos.size)+'</td>'+
+            '<td class="num mut">'+centStr(pos.avgPrice)+' → '+centStr(pos.curPrice)+'</td>'+
+            '<td class="num">'+fmt(pos.currentValue)+'</td><td class="num '+cls+'">'+fmt(pos.percentPnl)+'</td>'+
+            '<td><button class="buy" style="padding:5px 10px" onclick="copyBuy(\''+esc(pos.tokenId)+'\',\''+esc(p.address)+'\')">Buy</button></td></tr>';
+        });
+        body+='</table>';
+      }
+    }
+    card.innerHTML=head+body; box.appendChild(card);
+  });
+  document.getElementById('copyCount').textContent='showing '+shown+' / '+total+' positions';
+}
+
+async function copyBuy(tokenId, addr){
+  if(!TRADING) return pfmsg('Server is preview-only. Restart with TRADING_ENABLED=1 to copy-buy.','err');
+  const pos=(COPYDATA[addr]||[]).find(x=>String(x.tokenId)===String(tokenId)) || {};
+  const amt=prompt('USDC amount to BUY of "'+(pos.outcome||'?')+'" — '+(pos.title||tokenId)+'?');
+  if(amt===null) return;
+  if(!amt || Number(amt)<=0) return pfmsg('Enter a positive USDC amount.','err');
+  if(!confirm('Copy BUY '+amt+' USDC of "'+(pos.outcome||'?')+'" — '+(pos.title||tokenId)+'?\n\n(market FOK order)')) return;
+  pfmsg('Submitting copy buy…','mut');
+  try {
+    const d=await j('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tokenId,side:'BUY',amount:amt,type:'FOK',confirm:true})});
+    pfmsg('Copy buy submitted: '+JSON.stringify(d),'ok'); loadBalance();
+  } catch(e){ pfmsg(e.message,'err'); }
+}
+function pfmsg(t,c){ document.getElementById('pfMsg').innerHTML='<span class="'+c+'">'+esc(t)+'</span>'; }
+
+function selectMarket(i, el){
+  SELM = MARKETS[i]; SELT = null; LASTPREV=null;
+  document.querySelectorAll('.mkt').forEach(x=>x.classList.remove('sel')); el.classList.add('sel');
+  document.getElementById('orderCard').style.display='block';
+  document.getElementById('selInfo').innerHTML = '<b>'+esc(SELM.question)+'</b><div class="mut" style="font-size:12px">condition '+esc(SELM.conditionId)+'</div>';
+  const ob = document.getElementById('outcomes'); ob.innerHTML='';
+  SELM.outcomes.forEach((o,k)=>{
+    const b=document.createElement('button'); b.textContent=o.name+(o.price!=null?(' ('+o.price+')'):'');
+    b.onclick=()=>{ SELT=o; LASTPREV=null; document.querySelectorAll('#outcomes button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); document.getElementById('placeBtn').disabled=true; };
+    ob.appendChild(b);
+  });
+  document.getElementById('placeBtn').disabled=true;
+  document.getElementById('result').innerHTML='';
+}
+
+document.addEventListener('change', e=>{
+  if(e.target.id==='side'){ document.getElementById('amtLabel').textContent = e.target.value==='BUY' ? 'Amount (USDC)' : 'Amount (shares)'; }
+  if(['side','type','amount'].includes(e.target.id)){ LASTPREV=null; document.getElementById('placeBtn').disabled=true; }
+});
+
+async function preview(){
+  if(!SELT){ return msg('Select an outcome first.','err'); }
+  const body = { tokenId: SELT.tokenId, side: side.value, amount: amount.value, type: type.value };
+  msg('Previewing…','mut');
+  try {
+    const d = await j('/api/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    LASTPREV = d;
+    document.getElementById('result').innerHTML =
+      '<pre>'+esc(JSON.stringify(d,null,2))+'</pre>'+
+      '<div class="mut">Est. fill price <b>'+d.estPrice+'</b> · tick '+d.tickSize+' · negRisk '+d.negRisk+'</div>';
+    document.getElementById('placeBtn').disabled = !TRADING;
+    if(!TRADING) msgAppend('Server is preview-only. Restart with TRADING_ENABLED=1 to place orders.','err');
+  } catch(e){ msg(e.message,'err'); }
+}
+
+async function place(){
+  if(!SELT || !LASTPREV){ return msg('Preview first.','err'); }
+  const label = side.value+' '+amount.value+(side.value==='BUY'?' USDC':' shares')+' of "'+SELT.name+'" — '+SELM.question;
+  if(!confirm('Submit REAL order?\n\n'+label+'\n\nEst. fill: '+LASTPREV.estPrice)) return;
+  const body = { tokenId: SELT.tokenId, side: side.value, amount: amount.value, type: type.value, confirm: true };
+  msg('Submitting…','mut');
+  try {
+    const d = await j('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    document.getElementById('result').innerHTML = '<div class="ok">Submitted.</div><pre>'+esc(JSON.stringify(d,null,2))+'</pre>';
+    loadBalance();
+  } catch(e){ msg(e.message,'err'); }
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function msg(t,c){ document.getElementById('result').innerHTML='<span class="'+c+'">'+esc(t)+'</span>'; }
+function msgAppend(t,c){ document.getElementById('result').innerHTML+='<div class="'+c+'">'+esc(t)+'</div>'; }
+init();
+</script>
+</body>
+</html>
